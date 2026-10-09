@@ -1,0 +1,14 @@
+
+place_name,city,category,entry_fee,visit_hours,popularity,local_cost
+RK Beach,Vizag,Beaches,0,2,5,100
+Rushikonda Beach,Vizag,Beaches,0,2,5,150
+Yarada Beach,Vizag,Beaches,0,3,5,250
+Kailasagiri,Vizag,Nature,50,3,5,200
+Simhachalam Temple,Vizag,Temples,0,2,4,150
+Submarine Museum,Vizag,History,70,2,5,150
+Indira Gandhi Zoological Park,Vizag,Nature,50,3,4,200
+Borra Caves,Araku,Adventure,70,3,5,250
+Araku Valley,Araku,Nature,100,4,5,300
+Tribal Museum,Araku,History,40,2,4,100
+Padmapuram Gardens,Araku,Nature,50,2,4,100
+Katiki Waterfalls,Araku,Adventure,50,3,5,250
