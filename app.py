@@ -1,1241 +1,777 @@
-import streamlit as st
-import os
-import pandas as pd
-import plotly.express as px
+
 from pathlib import Path
 
-from modules.recommandations import recommend_places
-from modules.itenerary import generate_itinerary
-from modules.budget_optimizer import optimize_budget
+import pandas as pd
+import plotly.express as px
+import streamlit as st
 
 
 # ============================================================
-# PAGE CONFIG
+# 1. PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
     page_title="Smart Trip Planner",
     page_icon="✈️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 
 # ============================================================
-# PATHS
+# 2. PROJECT PATHS
 # ============================================================
 
-BASE_DIR = Path(__file__).parent
-
-DATA_PATH = BASE_DIR / "data" / "tourist_places.csv"
-
+BASE_DIR = Path(__file__).resolve().parent
+DATA_FILE = BASE_DIR / "data" / "tourist_places.csv"
 IMAGE_DIR = BASE_DIR / "images"
-
 PLACES_DIR = IMAGE_DIR / "places"
 
+SUPPORTED_IMAGES = {".jpg", ".jpeg", ".png", ".webp"}
+
 
 # ============================================================
-# CUSTOM CSS
+# 3. CUSTOM DESIGN
 # ============================================================
 
 st.markdown(
     """
     <style>
-
-    /* MAIN APP */
-
     .stApp {
-        background:
-            radial-gradient(
-                circle at top right,
-                rgba(70, 80, 180, 0.12),
-                transparent 30%
-            ),
-            #070b14;
-        color: #ffffff;
+        background: #070b14;
+        color: #f8fafc;
     }
 
     .block-container {
         max-width: 1400px;
-        padding-top: 2rem;
-        padding-bottom: 4rem;
+        padding-top: 1.8rem;
+        padding-bottom: 3rem;
     }
-
-
-    /* SIDEBAR */
 
     section[data-testid="stSidebar"] {
-        background: #080c15;
-        border-right: 1px solid #20283a;
+        background: #0a101c;
+        border-right: 1px solid #253047;
     }
-
-
-    /* HEADINGS */
 
     h1, h2, h3, h4 {
-        color: #ffffff !important;
+        color: #f8fafc !important;
     }
 
-
-    /* BUTTON */
-
-    .stButton > button {
-        background: linear-gradient(
-            90deg,
-            #5b5ff5,
-            #8b5cf6
-        );
-
-        color: white;
-        border: none;
-        border-radius: 12px;
-
-        font-weight: 700;
-        padding: 0.7rem 1rem;
-
-        transition: 0.2s;
+    p, label, .stCaption {
+        color: #cbd5e1;
     }
-
-    .stButton > button:hover {
-        transform: translateY(-2px);
-
-        box-shadow:
-            0 8px 25px
-            rgba(99, 102, 241, 0.35);
-    }
-
-
-    /* INPUTS */
-
-    .stTextInput input,
-    .stNumberInput input {
-
-        background: #111827 !important;
-        color: white !important;
-
-        border: 1px solid #29344a !important;
-
-        border-radius: 10px !important;
-    }
-
-
-    /* SELECT BOX */
-
-    div[data-baseweb="select"] {
-
-        background: #111827 !important;
-
-        border-radius: 10px !important;
-    }
-
-
-    /* METRICS */
 
     div[data-testid="stMetric"] {
-
-        background: #0d1422;
-
-        border: 1px solid #202b40;
-
-        border-radius: 16px;
-
-        padding: 18px;
+        background: #101827;
+        border: 1px solid #27344a;
+        border-radius: 15px;
+        padding: 16px;
     }
 
     div[data-testid="stMetricValue"] {
-
-        color: #8b8df7 !important;
-
-        font-weight: 800;
+        color: #a5b4fc !important;
     }
 
+    .stButton > button {
+        background: linear-gradient(90deg, #5558f2, #8b5cf6);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        font-weight: 600;
+        min-height: 42px;
+    }
 
-    /* CONTAINERS */
+    .stButton > button:hover {
+        color: white;
+        border: 1px solid #a5b4fc;
+    }
 
     div[data-testid="stVerticalBlockBorderWrapper"] {
-
-        background: #0c121e;
-
-        border-color: #222d42 !important;
-
-        border-radius: 18px;
+        background: #0d1421;
+        border-color: #263249;
+        border-radius: 16px;
     }
-
-
-    /* IMAGE */
-
-    img {
-
-        border-radius: 14px;
-    }
-
-
-    /* DIVIDER */
 
     hr {
-
-        border-color: #202a3d;
+        border-color: #263249;
     }
-
-
-    /* SMALL TEXT */
-
-    .muted {
-
-        color: #8c96a8;
-
-        font-size: 14px;
-    }
-
-
     </style>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
 
 # ============================================================
-# LOAD DATA
+# 4. LOAD AND VALIDATE DATA
 # ============================================================
 
 @st.cache_data
-def load_data():
+def load_data(csv_path):
+    df = pd.read_csv(csv_path)
 
-    return pd.read_csv(DATA_PATH)
+    required_columns = [
+        "place_name",
+        "city",
+        "category",
+        "entry_fee",
+        "visit_hours",
+        "popularity",
+        "local_cost",
+    ]
 
+    missing = [
+        column
+        for column in required_columns
+        if column not in df.columns
+    ]
 
-data = load_data()
-
-
-# ============================================================
-# IMAGE FUNCTIONS
-# ============================================================
-
-def get_images_for_place(place_name):
-
-    """
-    Finds all images inside:
-
-    images/places/PLACE_NAME/
-    """
-
-    folder = PLACES_DIR / place_name
-
-    if not folder.exists():
-
-        return []
-
-    images = []
-
-    for extension in [
-        "*.jpg",
-        "*.jpeg",
-        "*.png",
-        "*.webp"
-    ]:
-
-        images.extend(
-            folder.glob(extension)
+    if missing:
+        raise ValueError(
+            "Missing CSV columns: " + ", ".join(missing)
         )
 
-    return sorted(images)
+    for column in [
+        "entry_fee",
+        "visit_hours",
+        "popularity",
+        "local_cost",
+    ]:
+        df[column] = pd.to_numeric(
+            df[column], errors="coerce"
+        ).fillna(0)
+
+    df["place_name"] = df["place_name"].astype(str).str.strip()
+    df["city"] = df["city"].astype(str).str.strip()
+    df["category"] = df["category"].astype(str).str.strip()
+
+    return df
 
 
-def get_first_place_image(place_name):
+if not DATA_FILE.exists():
+    st.error(f"Dataset not found: {DATA_FILE}")
+    st.info(
+        "Place tourist_places.csv inside the project's data folder."
+    )
+    st.stop()
 
-    """
-    Gets first image of a place.
-    """
+try:
+    data = load_data(str(DATA_FILE))
+except Exception as error:
+    st.error(f"Could not load the dataset: {error}")
+    st.stop()
 
-    images = get_images_for_place(
-        place_name
+if data.empty:
+    st.error("Your tourist_places.csv file contains no places.")
+    st.stop()
+
+
+# ============================================================
+# 5. IMAGE HELPERS
+# ============================================================
+
+def find_images(folder):
+    """Return image files in a folder, in a stable order."""
+
+    if not folder.is_dir():
+        return []
+
+    return sorted(
+        [
+            path
+            for path in folder.iterdir()
+            if path.is_file()
+            and path.suffix.lower() in SUPPORTED_IMAGES
+        ],
+        key=lambda path: path.name.lower(),
     )
 
-    if images:
 
-        return str(images[0])
+def place_folder_name(place_name):
+    """Use the place's exact name as its image folder name."""
 
-
-    # Fallback images
-
-    fallback = {
-
-        "RK Beach":
-            IMAGE_DIR / "vizag.jpg",
-
-        "Rushikonda Beach":
-            IMAGE_DIR / "vizag.jpg",
-
-        "Yarada Beach":
-            IMAGE_DIR / "vizag.jpg",
-
-        "Kailasagiri":
-            IMAGE_DIR / "vizag.jpg",
-
-        "Simhachalam Temple":
-            IMAGE_DIR / "simhachalam.jpg",
-
-        "Submarine Museum":
-            IMAGE_DIR / "vizag.jpg",
-
-        "Indira Gandhi Zoological Park":
-            IMAGE_DIR / "vizag.jpg",
-
-        "Borra Caves":
-            IMAGE_DIR / "araku.jpg",
-
-        "Araku Valley":
-            IMAGE_DIR / "araku.jpg",
-
-        "Tribal Museum":
-            IMAGE_DIR / "araku.jpg",
-
-        "Padmapuram Gardens":
-            IMAGE_DIR / "araku.jpg",
-
-        "Katiki Waterfalls":
-            IMAGE_DIR / "araku.jpg"
-    }
+    return PLACES_DIR / str(place_name).strip()
 
 
-    image = fallback.get(place_name)
+def get_place_images(place_name):
+    """Find all photos belonging to a tourist place."""
+
+    return find_images(place_folder_name(place_name))
 
 
-    if image and image.exists():
+def get_cover_image():
+    """Choose the cover photo in the preferred order."""
 
-        return str(image)
+    for filename in [
+        "cover.jpg",
+        "cover.png",
+        "hero.jpg",
+        "hero.png",
+        "vizag.jpg",
+        "araku.jpg",
+    ]:
+        candidate = IMAGE_DIR / filename
 
+        if candidate.is_file():
+            return candidate
 
     return None
 
 
+def get_destination_image(destination):
+    """Get a destination image or fall back to its first place photo."""
+
+    destination_files = {
+        "vizag": ["vizag.jpg", "vizag.png"],
+        "araku": ["araku.jpg", "araku.png"],
+    }
+
+    for filename in destination_files.get(
+        str(destination).lower(), []
+    ):
+        candidate = IMAGE_DIR / filename
+
+        if candidate.is_file():
+            return candidate
+
+    destination_places = data[
+        data["city"].str.lower() == str(destination).lower()
+    ]
+
+    for place_name in destination_places["place_name"]:
+        photos = get_place_images(place_name)
+
+        if photos:
+            return photos[0]
+
+    return None
+
+
+def show_place_gallery(place_name):
+    """Display all available photos for one place."""
+
+    photos = get_place_images(place_name)
+
+    if not photos:
+        st.info(
+            f"No photos found for {place_name}. "
+            f"Add images to images/places/{place_name}/"
+        )
+        return
+
+    st.caption(f"📸 {len(photos)} photo(s)")
+
+    # Display photos in rows of up to three.
+    for start in range(0, len(photos), 3):
+        photo_row = photos[start:start + 3]
+        columns = st.columns(len(photo_row))
+
+        for column, photo in zip(columns, photo_row):
+            with column:
+                st.image(
+                    str(photo),
+                    caption=photo.name,
+                    use_container_width=True,
+                )
+
+
 # ============================================================
-# SIDEBAR
+# 6. RECOMMENDATION LOGIC
+# ============================================================
+
+def recommend_places(destination, interests):
+    """Rank places by matching interests and popularity."""
+
+    result = data[
+        data["city"].str.lower() == destination.lower()
+    ].copy()
+
+    if result.empty:
+        return result
+
+    selected = {interest.lower() for interest in interests}
+
+    result["interest_match"] = result["category"].str.lower().apply(
+        lambda category: 1.0 if category in selected else 0.0
+    )
+
+    result["recommendation_score"] = (
+        0.75 * result["interest_match"]
+        + 0.25 * (result["popularity"].clip(0, 5) / 5)
+    )
+
+    return result.sort_values(
+        ["recommendation_score", "popularity"],
+        ascending=False,
+    )
+
+
+# ============================================================
+# 7. BUDGET OPTIMIZER
+# ============================================================
+
+def optimize_budget(
+    recommendations,
+    budget,
+    people,
+    days,
+    travel_per_person,
+    hotel_per_person,
+    food_per_person,
+):
+    travel = travel_per_person * people
+    accommodation = hotel_per_person * people * max(days - 1, 0)
+    food = food_per_person * people * days
+
+    fixed_cost = travel + accommodation + food
+    remaining = budget - fixed_cost
+
+    selected_places = []
+    activity_cost = 0
+
+    if remaining >= 0:
+        for _, place in recommendations.iterrows():
+            cost = (
+                max(0, place["entry_fee"])
+                + max(0, place["local_cost"])
+            ) * people
+
+            if activity_cost + cost <= remaining:
+                selected_places.append(place["place_name"])
+                activity_cost += cost
+
+    total = fixed_cost + activity_cost
+
+    return {
+        "travel": travel,
+        "accommodation": accommodation,
+        "food": food,
+        "activities": activity_cost,
+        "total": total,
+        "remaining": budget - total,
+        "selected_places": selected_places,
+    }
+
+
+# ============================================================
+# 8. DAY-WISE ITINERARY
+# ============================================================
+
+def create_itinerary(place_names, days):
+    slots = ["Morning", "Afternoon", "Evening"]
+
+    itinerary = {
+        f"Day {day}": {
+            slot: [] for slot in slots
+        }
+        for day in range(1, days + 1)
+    }
+
+    for index, place_name in enumerate(place_names):
+        day_index = index // 3
+
+        if day_index >= days:
+            break
+
+        slot = slots[index % 3]
+        itinerary[f"Day {day_index + 1}"][slot].append(
+            place_name
+        )
+
+    return itinerary
+
+
+# ============================================================
+# 9. SIDEBAR NAVIGATION
 # ============================================================
 
 with st.sidebar:
-
-    st.markdown("## ✈️ Smart Trip")
-
-    st.caption(
-        "Plan smarter • Travel better"
-    )
-
+    st.markdown("# ✈️ Smart Trip")
+    st.caption("Plan smarter. Travel better.")
     st.divider()
 
     page = st.radio(
-        "MENU",
+        "NAVIGATION",
         [
-            "🏠 Home",
-            "🧭 Plan Trip",
-            "📸 Explore Places",
-            "💰 Budget",
-            "🗓️ Itinerary"
-        ]
+            "Home",
+            "Plan Your Trip",
+            "Explore Places",
+            "Budget Analysis",
+            "Itinerary",
+        ],
     )
 
     st.divider()
-
-    st.caption(
-        "Data Science Project"
-    )
-
-    st.caption(
-        "Smart Trip Planner"
-    )
+    st.caption("Python • Streamlit • Data Science")
 
 
 # ============================================================
-# HOME
+# 10. HOME PAGE
 # ============================================================
 
-if page == "🏠 Home":
+if page == "Home":
+    cover = get_cover_image()
 
-    # --------------------------------------------------------
-    # HERO
-    # --------------------------------------------------------
-
-    hero_path = IMAGE_DIR / "hero.png"
-
-    if not hero_path.exists():
-
-        hero_path = IMAGE_DIR / "vizag.jpg"
-
-
-    if hero_path.exists():
-
+    if cover:
         st.image(
-            str(hero_path),
-            use_container_width=True
+            str(cover),
+            use_container_width=True,
         )
-
     else:
-
         st.info(
-            "Add hero.jpg inside the images folder."
+            "Add a cover image such as images/cover.jpg "
+            "to display a large travel photo here."
         )
 
+    st.title("✈️ SMART TRIP PLANNER")
+    st.subheader("Plan smarter. Travel better.")
 
-    st.title(
-        "✈️ SMART TRIP PLANNER"
+    st.write(
+        "Discover destinations, explore tourist attractions, "
+        "estimate your expenses, and organize your next journey."
     )
-
-    st.markdown(
-        "### Plan smarter. Travel better."
-    )
-
-    st.caption(
-        "Discover destinations, get personalized recommendations, "
-        "optimize your budget and create a day-wise itinerary."
-    )
-
 
     st.divider()
+    st.header("🌍 Popular Destinations")
 
+    destinations = list(data["city"].drop_duplicates())
+    columns = st.columns(min(3, len(destinations)))
 
-    # --------------------------------------------------------
-    # POPULAR DESTINATIONS
-    # --------------------------------------------------------
+    for index, destination in enumerate(destinations):
+        with columns[index % len(columns)]:
+            with st.container(border=True):
+                image = get_destination_image(destination)
 
-    st.header(
-        "🌍 Popular Destinations"
-    )
+                if image:
+                    st.image(
+                        str(image),
+                        use_container_width=True,
+                    )
+                else:
+                    st.caption("📷 Add a destination image")
 
-    st.caption(
-        "Explore some of the most popular destinations."
-    )
+                st.subheader(destination)
 
-
-    col1, col2, col3 = st.columns(
-        3,
-        gap="large"
-    )
-
-
-    # VIZAG
-
-    with col1:
-
-        with st.container(
-            border=True
-        ):
-
-            image = IMAGE_DIR / "vizag.jpg"
-
-            if image.exists():
-
-                st.image(
-                    str(image),
-                    use_container_width=True
+                place_count = len(
+                    data[data["city"] == destination]
                 )
 
-            st.subheader(
-                "Vizag"
-            )
-
-            st.caption(
-                "🏖️ Coastal Paradise"
-            )
-
-            st.write(
-                "Beaches • Nature • Adventure"
-            )
-
-            st.write(
-                "⭐ 4.5"
-            )
-
-
-    # ARAKU
-
-    with col2:
-
-        with st.container(
-            border=True
-        ):
-
-            image = IMAGE_DIR / "araku.jpg"
-
-            if image.exists():
-
-                st.image(
-                    str(image),
-                    use_container_width=True
-                )
-
-            st.subheader(
-                "Araku Valley"
-            )
-
-            st.caption(
-                "⛰️ Hill Station"
-            )
-
-            st.write(
-                "Hills • Coffee • Scenic Views"
-            )
-
-            st.write(
-                "⭐ 4.6"
-            )
-
-
-    # SIMHACHALAM
-
-    with col3:
-
-        with st.container(
-            border=True
-        ):
-
-            image = IMAGE_DIR / "simhachalam.jpg"
-
-            if image.exists():
-
-                st.image(
-                    str(image),
-                    use_container_width=True
-                )
-
-            st.subheader(
-                "Simhachalam"
-            )
-
-            st.caption(
-                "🛕 Heritage & Culture"
-            )
-
-            st.write(
-                "Temple • Culture • Heritage"
-            )
-
-            st.write(
-                "⭐ 4.7"
-            )
-
+                st.caption(f"{place_count} places to explore")
 
     st.divider()
+    st.header("📊 Your Travel Database")
 
+    col1, col2, col3 = st.columns(3)
 
-    # --------------------------------------------------------
-    # PROJECT STATISTICS
-    # --------------------------------------------------------
+    col1.metric("Destinations", data["city"].nunique())
+    col2.metric("Tourist Places", len(data))
+    col3.metric("Categories", data["category"].nunique())
 
-    st.header(
-        "📊 Travel Database"
-    )
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "Destinations",
-        data["city"].nunique()
-    )
-
-    c2.metric(
-        "Tourist Places",
-        len(data)
-    )
-
-    c3.metric(
-        "Categories",
-        data["category"].nunique()
-    )
-
-    c4.metric(
-        "Planner",
-        "AI Powered"
+    st.info(
+        "Select 'Plan Your Trip' in the sidebar to create a trip."
     )
 
 
 # ============================================================
-# PLAN TRIP
+# 11. PLAN YOUR TRIP PAGE
 # ============================================================
 
-elif page == "🧭 Plan Trip":
+elif page == "Plan Your Trip":
+    st.title("🧭 Plan Your Trip")
+    st.caption("Choose your destination, interests, and budget.")
 
-    st.header(
-        "🧭 Plan Your Trip"
-    )
+    with st.form("trip_form"):
+        left, right = st.columns(2)
 
-    st.caption(
-        "Enter your preferences and create a personalized trip."
-    )
-
-
-    left, right = st.columns(
-        [1.4, 1],
-        gap="large"
-    )
-
-
-    # --------------------------------------------------------
-    # TRIP DETAILS
-    # --------------------------------------------------------
-
-    with left:
-
-        with st.container(
-            border=True
-        ):
-
-            st.subheader(
-                "Trip Details"
-            )
-
+        with left:
             start_location = st.text_input(
                 "Starting Location",
-                placeholder="Example: Hyderabad"
+                placeholder="Example: Hyderabad",
             )
-
 
             destination = st.selectbox(
                 "Destination",
-                sorted(
-                    data["city"].unique()
-                )
+                sorted(data["city"].unique()),
             )
 
+            days = st.number_input(
+                "Number of Days",
+                min_value=1,
+                max_value=30,
+                value=3,
+            )
 
-            col1, col2 = st.columns(2)
-
-
-            with col1:
-
-                days = st.number_input(
-                    "Number of Days",
-                    min_value=1,
-                    max_value=15,
-                    value=3
-                )
-
-
-            with col2:
-
-                people = st.number_input(
-                    "Number of People",
-                    min_value=1,
-                    max_value=20,
-                    value=2
-                )
-
+            people = st.number_input(
+                "Number of People",
+                min_value=1,
+                max_value=50,
+                value=2,
+            )
 
             budget = st.number_input(
                 "Total Budget (₹)",
                 min_value=1000,
+                max_value=10000000,
                 value=20000,
-                step=1000
+                step=1000,
             )
-
 
             interests = st.multiselect(
-                "Interests",
-                sorted(
-                    data["category"].unique()
-                ),
-                default=["Nature"]
+                "Your Interests",
+                sorted(data["category"].unique()),
+                default=[data["category"].iloc[0]],
             )
 
-
-    # --------------------------------------------------------
-    # BUDGET SETTINGS
-    # --------------------------------------------------------
-
-    with right:
-
-        with st.container(
-            border=True
-        ):
-
-            st.subheader(
-                "💰 Budget Settings"
-            )
-
+        with right:
+            st.subheader("💰 Estimated Expenses")
 
             travel_cost = st.number_input(
-                "Travel Cost / Person",
+                "Travel cost per person (₹)",
                 min_value=0,
                 value=1500,
-                step=100
+                step=100,
             )
 
-
-            accommodation = st.number_input(
-                "Accommodation / Person / Night",
+            hotel_cost = st.number_input(
+                "Accommodation per person per night (₹)",
                 min_value=0,
                 value=1200,
-                step=100
+                step=100,
             )
 
-
-            food = st.number_input(
-                "Food / Person / Day",
+            food_cost = st.number_input(
+                "Food per person per day (₹)",
                 min_value=0,
                 value=600,
-                step=100
+                step=100,
             )
 
+        submitted = st.form_submit_button(
+            "✨ PLAN MY TRIP",
+            use_container_width=True,
+        )
 
-            st.write("")
-
-
-            plan = st.button(
-                "✨ PLAN MY TRIP",
-                use_container_width=True
-            )
-
-
-    # --------------------------------------------------------
-    # GENERATE PLAN
-    # --------------------------------------------------------
-
-    if plan:
-
+    if submitted:
         if not start_location.strip():
-
-            st.warning(
-                "Please enter your starting location."
-            )
+            st.error("Please enter your starting location.")
 
         elif not interests:
-
-            st.warning(
-                "Please select at least one interest."
-            )
+            st.error("Please select at least one interest.")
 
         else:
-
-            recommended = recommend_places(
-                data,
+            recommendations = recommend_places(
                 destination,
-                interests
+                interests,
             )
 
-
             budget_result = optimize_budget(
-                recommended,
+                recommendations,
                 budget,
                 people,
                 days,
                 travel_cost,
-                accommodation,
-                food
+                hotel_cost,
+                food_cost,
             )
 
-
-            itinerary = generate_itinerary(
+            itinerary = create_itinerary(
                 budget_result["selected_places"],
-                days
+                int(days),
             )
-
 
             st.session_state["trip"] = {
-
-                "start": start_location,
-
+                "start_location": start_location,
                 "destination": destination,
-
-                "days": days,
-
-                "people": people,
-
+                "days": int(days),
+                "people": int(people),
                 "budget": budget,
-
                 "interests": interests,
-
-                "recommended": recommended,
-
+                "recommendations": recommendations,
                 "budget_result": budget_result,
-
-                "itinerary": itinerary
+                "itinerary": itinerary,
             }
 
-
             st.success(
-                "🎉 Your trip has been planned!"
+                "Trip plan created! Open Budget Analysis, "
+                "Itinerary, or Explore Places from the sidebar."
             )
 
 
 # ============================================================
-# TRIP RESULTS
+# 12. EXPLORE PLACES PAGE
 # ============================================================
 
-if "trip" in st.session_state:
+elif page == "Explore Places":
+    st.title("📸 Explore Places")
+    st.caption("Explore destinations and view their photo galleries.")
 
-    trip = st.session_state["trip"]
-
-    recommended = trip["recommended"]
-
-    budget_result = trip["budget_result"]
-
-    itinerary = trip["itinerary"]
-
-
-    st.divider()
-
-
-    st.header(
-        "✨ Your Trip Overview"
+    destination = st.selectbox(
+        "Choose a destination",
+        sorted(data["city"].unique()),
     )
 
-
-    m1, m2, m3, m4 = st.columns(4)
-
-
-    m1.metric(
-        "Budget",
-        f"₹{trip['budget']:,.0f}"
-    )
-
-
-    m2.metric(
-        "Estimated Cost",
-        f"₹{budget_result['total']:,.0f}"
-    )
-
-
-    m3.metric(
-        "Remaining",
-        f"₹{budget_result['remaining']:,.0f}"
-    )
-
-
-    m4.metric(
-        "Places",
-        len(
-            budget_result[
-                "selected_places"
-            ]
-        )
-    )
-
-
-    # --------------------------------------------------------
-    # RECOMMENDED PLACES
-    # --------------------------------------------------------
-
-    st.header(
-        "📍 Recommended Places"
-    )
-
-
-    top_places = recommended.head(6)
-
-
-    columns = st.columns(
-        3,
-        gap="large"
-    )
-
-
-    for index, (_, place) in enumerate(
-        top_places.iterrows()
-    ):
-
-        with columns[
-            index % 3
-        ]:
-
-            with st.container(
-                border=True
-            ):
-
-                image = get_first_place_image(
-                    place["place_name"]
-                )
-
-
-                if image:
-
-                    st.image(
-                        image,
-                        use_container_width=True
-                    )
-
-                else:
-
-                    st.info(
-                        "📷 Add image"
-                    )
-
-
-                st.subheader(
-                    place["place_name"]
-                )
-
-
-                st.caption(
-                    f"📍 {place['city']} • "
-                    f"{place['category']}"
-                )
-
-
-                st.write(
-                    f"⭐ Popularity: "
-                    f"{place['popularity']}/5"
-                )
-
-
-    # --------------------------------------------------------
-    # PHOTO GALLERY
-    # --------------------------------------------------------
-# ---------- PLACE PHOTO GALLERY ----------
-  
-for place in places:
-    place_folder = os.path.join(
-        IMAGE_DIR,
-        "places",
-        place["folder"]
-    )
-
-if os.path.isdir(place_folder):
-
-    photo_files = []
-
-    for filename in os.listdir(place_folder):
-
-        if filename.lower().endswith(
-            (".jpg", ".jpeg", ".png", ".webp")
-        ):
-            photo_files.append(
-                os.path.join(place_folder, filename)
-            )
-
-    photo_files.sort()
-
-    if photo_files:
-
-        st.write(f"📸 {len(photo_files)} photos")
-
-        photo_columns = st.columns(
-            min(len(photo_files), 3)
-        )
-
-        for index, photo in enumerate(photo_files):
-
-            with photo_columns[index % len(photo_columns)]:
-
-                st.image(
-                    photo,
-                    use_container_width=True
-                )
-    
-    # BUDGET
-    # --------------------------------------------------------
-
-    st.divider()
-
-    st.header(
-        "💰 Budget Analysis"
-    )
-
-
-    budget_df = pd.DataFrame({
-
-        "Category": [
-            "Travel",
-            "Accommodation",
-            "Food",
-            "Activities"
-        ],
-
-        "Amount": [
-            budget_result["travel"],
-            budget_result["accommodation"],
-            budget_result["food"],
-            budget_result["activities"]
-        ]
-    })
-
-
-    col1, col2 = st.columns(
-        2
-    )
-
-
-    with col1:
-
-        fig = px.pie(
-            budget_df,
-            names="Category",
-            values="Amount",
-            hole=0.55
-        )
-
-
-        fig.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font_color="white"
-        )
-
-
-        st.plotly_chart(
-            fig,
-            use_container_width=True
-        )
-
-
-    with col2:
-
-        st.dataframe(
-            budget_df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-
-    # --------------------------------------------------------
-    # ITINERARY
-    # --------------------------------------------------------
-
-    st.divider()
-
-    st.header(
-        "🗓️ Your Itinerary"
-    )
-
-
-    for day, schedule in itinerary.items():
-
-        with st.container(
-            border=True
-        ):
-
-            st.subheader(
-                day
-            )
-
-
-            for slot, places in schedule.items():
-
-                if places:
-
-                    st.write(
-                        f"**{slot}**"
-                    )
-
-                    st.write(
-                        " • ".join(places)
-                    )
-
-
-# ============================================================
-# EXPLORE PLACES
-# ============================================================
-
-elif page == "📸 Explore Places":
-
-    st.header(
-        "📸 Explore Places"
-    )
-
-    selected_city = st.selectbox(
-        "Choose Destination",
-        sorted(
-            data["city"].unique()
-        )
-    )
-
-
-    city_data = data[
-        data["city"] == selected_city
+    destination_data = data[
+        data["city"].str.lower() == destination.lower()
     ]
 
-
-    for start in range(
-        0,
-        len(city_data),
-        3
-    ):
-
-        row = city_data.iloc[
-            start:start + 3
-        ]
-
-
-        columns = st.columns(
-            3,
-            gap="large"
-        )
-
+    for start in range(0, len(destination_data), 3):
+        row_data = destination_data.iloc[start:start + 3]
+        columns = st.columns(len(row_data))
 
         for column, (_, place) in zip(
             columns,
-            row.iterrows()
+            row_data.iterrows(),
         ):
-
             with column:
+                with st.container(border=True):
+                    photos = get_place_images(place["place_name"])
 
-                with st.container(
-                    border=True
-                ):
-
-                    image = get_first_place_image(
-                        place["place_name"]
-                    )
-
-
-                    if image:
-
+                    if photos:
                         st.image(
-                            image,
-                            use_container_width=True
+                            str(photos[0]),
+                            use_container_width=True,
                         )
-
                     else:
+                        st.info("📷 Image not found")
 
-                        st.info(
-                            "📷 Image not found"
+                    st.subheader(place["place_name"])
+                    st.caption(f"📍 {place['city']}")
+                    st.write(f"Category: {place['category']}")
+                    st.write(f"Popularity: {place['popularity']}/5")
+
+                    if photos:
+                        st.caption(f"{len(photos)} photos available")
+
+                    if st.button(
+                        "View Photos",
+                        key=f"gallery_{place['place_name']}",
+                        use_container_width=True,
+                    ):
+                        st.session_state["selected_gallery"] = (
+                            place["place_name"]
                         )
 
+    selected_gallery = st.session_state.get("selected_gallery")
 
-                    st.subheader(
-                        place["place_name"]
-                    )
-
-
-                    st.caption(
-                        place["category"]
-                    )
-
-
-                    st.write(
-                        f"⭐ {place['popularity']}/5"
-                    )
-
-
-                    images = get_images_for_place(
-                        place["place_name"]
-                    )
-
-
-                    if images:
-
-                        st.caption(
-                            f"📸 {len(images)} photos available"
-                        )
+    if selected_gallery:
+        st.divider()
+        st.header(f"📷 {selected_gallery} Photo Gallery")
+        show_place_gallery(selected_gallery)
 
 
 # ============================================================
-# BUDGET PAGE
+# 13. BUDGET ANALYSIS PAGE
 # ============================================================
 
-elif page == "💰 Budget":
+elif page == "Budget Analysis":
+    st.title("💰 Budget Analysis")
 
-    st.header(
-        "💰 Budget Optimizer"
-    )
+    trip = st.session_state.get("trip")
 
+    if not trip:
+        st.info("Create a trip first using 'Plan Your Trip'.")
+    else:
+        result = trip["budget_result"]
 
-    if "trip" not in st.session_state:
-
-        st.info(
-            "Create a trip first."
+        st.caption(
+            f"Destination: {trip['destination']} • "
+            f"{trip['days']} day(s) • "
+            f"{trip['people']} traveller(s)"
         )
 
-    else:
+        col1, col2, col3 = st.columns(3)
 
-        result = st.session_state[
-            "trip"
-        ]["budget_result"]
+        col1.metric("Total Budget", f"₹{trip['budget']:,.0f}")
+        col2.metric("Estimated Cost", f"₹{result['total']:,.0f}")
+        col3.metric("Remaining", f"₹{result['remaining']:,.0f}")
 
+        if result["remaining"] < 0:
+            st.warning("The estimated trip cost exceeds your budget.")
+        else:
+            st.success("The estimated trip fits within your budget.")
 
-        df = pd.DataFrame({
-
+        budget_df = pd.DataFrame({
             "Category": [
                 "Travel",
                 "Accommodation",
                 "Food",
-                "Activities"
+                "Activities",
             ],
-
             "Amount": [
                 result["travel"],
                 result["accommodation"],
                 result["food"],
-                result["activities"]
-            ]
+                result["activities"],
+            ],
         })
 
+        left, right = st.columns(2)
 
-        fig = px.bar(
-            df,
-            x="Category",
-            y="Amount",
-            text="Amount"
-        )
+        with left:
+            fig = px.pie(
+                budget_df,
+                names="Category",
+                values="Amount",
+                hole=0.5,
+                title="Expense Distribution",
+            )
 
+            fig.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="white",
+            )
 
-        fig.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font_color="white"
-        )
+            st.plotly_chart(fig, use_container_width=True)
 
+        with right:
+            st.subheader("Expense Breakdown")
+            st.dataframe(
+                budget_df,
+                use_container_width=True,
+                hide_index=True,
+            )
 
-        st.plotly_chart(
-            fig,
-            use_container_width=True
+        st.caption(
+            "Costs are estimates based on the values entered "
+            "and the sample dataset, not live prices."
         )
 
 
 # ============================================================
-# ITINERARY PAGE
+# 14. ITINERARY PAGE
 # ============================================================
 
-elif page == "🗓️ Itinerary":
+elif page == "Itinerary":
+    st.title("🗓️ Your Trip Itinerary")
 
-    st.header(
-        "🗓️ Trip Itinerary"
-    )
+    trip = st.session_state.get("trip")
 
-
-    if "trip" not in st.session_state:
-
-        st.info(
-            "Create a trip first."
-        )
-
+    if not trip:
+        st.info("Create a trip first using 'Plan Your Trip'.")
     else:
+        st.caption(
+            f"{trip['start_location']} → {trip['destination']}"
+        )
 
-        itinerary = st.session_state[
-            "trip"
-        ]["itinerary"]
-
+        itinerary = trip["itinerary"]
 
         for day, schedule in itinerary.items():
-
-            with st.container(
-                border=True
-            ):
-
-                st.subheader(
-                    day
-                )
-
+            with st.container(border=True):
+                st.subheader(day)
 
                 for slot, places in schedule.items():
+                    st.markdown(f"**{slot}**")
 
                     if places:
-
-                        st.write(
-                            f"**{slot}**"
-                        )
-
-                        st.write(
-                            " • ".join(places)
-                        )
+                        for place_name in places:
+                            st.write(f"📍 {place_name}")
+                    else:
+                        st.caption("No place scheduled")
 
 
 # ============================================================
-# FOOTER
+# 15. FOOTER
 # ============================================================
 
 st.divider()
-
-st.caption(
-    "✈️ Smart Trip Planner • "
-    "Data Science Project • "
-    "Plan smarter. Travel better."
-)
+st.caption("✈️ Smart Trip Planner | Plan smarter. Travel better.")
